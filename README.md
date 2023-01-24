@@ -1,6 +1,6 @@
 <a href="https://zenodo.org/badge/latestdoi/589047648"><img src="https://zenodo.org/badge/589047648.svg" alt="DOI"></a>
 
-# Comparing the Effectiveness of Treatment for Post-traumatic Stress Disorder (PTSD) In Veterans and Non-veterans
+# Comparing the Effectiveness of Treatment for Post-Traumatic Stress Disorder (PTSD) in Veterans and Non-Veterans
 This repository serves as a data and publication archive for the paper: *Comparing the Effectiveness of Treatment for Post-traumatic Stress Disorder (PTSD) In Veterans and Non-veterans*.
 
 ## R and Jasp Code :computer:
