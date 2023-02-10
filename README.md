@@ -4,8 +4,8 @@
 This repository serves as a data and publication archive for the paper: *Comparing the Effectiveness of Treatment for Post-Traumatic Stress Disorder (PTSD) in Veterans and Non-Veterans*.
 
 ## R and Jasp Code :computer:
-The R code to reproduce the results can be found in the [`R`](/R/) folder.
+The R code to reproduce the results can be found in the [`R`](/R/) folder. The Bayesian ANCOVA was performed in JASP, those results can be found in the [`JASP`](/JASP/) folder.
 
-The data was generated in `R` (v4.2.2) and manupulated using the `tidyverse` (v1.3.2) package. 
+The original and processed data can be accesed upon request.
 
 In case of any troubles, feel free to contact [Ernst Paul Swens](mailto:epswens@gmail.com).
