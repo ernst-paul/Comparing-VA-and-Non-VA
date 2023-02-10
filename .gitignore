@@ -1,3 +1,6 @@
+# Ignore DS_Store from MacOs 
+.DS_Store
+
 # History files
 .Rhistory
 .Rapp.history
