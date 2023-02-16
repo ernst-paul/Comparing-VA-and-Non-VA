@@ -124,6 +124,7 @@ load("data/cache/table_1.RData")
 # load data 
 print(table_1, smd = TRUE)
 ```
+
 We noticed a significant class imbalance with only 43 veterans and 3848 non-veterans. We should be careful with the confounding effect of `age` and `sex`, as both standardized mean differences are greater than 0.5. Therefore, we used a nearest neighbor matching procedure. The algorithm matched each veteran with the most similar non-veteran based on `sex`, `age`, `starting_date`, and `duration`.
 
 ```{r eval=FALSE, warning=FALSE, include=TRUE}
@@ -190,12 +191,12 @@ vet <- vet %>%
       sexual   = factor(LEC_8,    levels = c(0, 1), labels = c("No", "Yes")),
       physical = factor(LEC_6,    levels = c(0, 1), labels = c("No", "Yes")),
       nature   = as.numeric(LEC_1 | LEC_2 | LEC_3 | LEC_4),
-      nature   = factor(nature,   levels = c(0, 1), labels = c("No", "Yes")),
+      nature   = factor(nature, levels = c(0, 1), labels = c("No", "Yes")),
       mood     = as.numeric(depressie_IN %in% c(1,2,3,7) | dysthymie %in% 1),
       mood     = factor(mood, levels = c(0, 1), labels = c("No", "Yes")),
       fear     = as.numeric(
-         enkelfob %in% c(1) | GAS %in% c(1,2) | 
-         HYP %in% c(1) | OCD %in% c(1,2,3) | pan %in% c(1,2,3,4,5) | 
+         enkelfob %in% c(1) | GAS %in% c(1, 2) | 
+         HYP %in% c(1) | OCD %in% c(1, 2, 3) | pan %in% c(1, 2, 3, 4, 5) | 
          ago%in% c(1) | soc%in% c(1) | socgegen%in% c(1)),
       fear = factor(fear, levels = c(0, 1), labels = c("No", "Yes")),
       suicide = factor(
@@ -261,7 +262,7 @@ p_value <- function(x, ...) {
 }
 
 table1::table1(
-  ~ sex + pre_score + post_score + age + war + sexual + physical + 
+  ~ sex + pre_score + post_score + diff_score + age + war + sexual + physical + 
     nature + mood + fear + suicide + duration | veteran, 
   data = vet, 
   topclass = "Rtable1-zebra", 
@@ -346,6 +347,7 @@ ggarrange(plotlist = plot_list, ncol = 2, nrow = 2, common.legend = TRUE)
 ggsave("figures/missingness.pdf", width = 9, height = 9, dpi = 300)
 ggsave("figures/missingness.png", width = 9, height = 9, dpi = 300)
 ```
+
 In conclusion, the reason for the missing follow-up score appears to be random, supporting the assumption that $H_0$ is true.
 
 # 3. Marginal Analysis
@@ -415,7 +417,7 @@ t_test <- vet %>%
 
 t_test
 ```
-The results from the pre-test (M = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% mean() %>% sd(1)`) and post-test (M = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
+The results from the pre-test (M = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% sd() %>% round(1)`) and post-test (M = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
 
 ```{r echo=FALSE}
 cohen_d <- vet %>% 
@@ -424,6 +426,7 @@ cohen_d <- vet %>%
 
 cohen_d
 ```
+
 The effect size for this analysis (d = `r cohen_d$estimate %>% round(2)`) was found to exceed Cohen’s (1988) convention for a large effect (d = .80).
 
 ## 3.2. Non-Veterans
@@ -438,7 +441,7 @@ These hypotheses can be tested using a paired t-test. The effect size can be qua
 
 ```{r echo=FALSE}
 t_test <- vet %>% 
-   filter(veteran == "Veteran") %$%
+   filter(veteran == "Non-Veteran") %$%
    t.test(
       post_score, pre_score, 
       alternative = "less",
@@ -447,7 +450,7 @@ t_test <- vet %>%
 
 t_test
 ```
-The results from the pre-test (M = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% mean() %>% sd(1)`) and post-test (M = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
+The results from the pre-test (M = `r filter(vet, veteran == "Non-Veteran")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Non-Veteran")[, "pre_score"] %>% sd() %>% round(1)`) and post-test (M = `r filter(vet, veteran == "Non-Veteran")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Non-Veteran")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
 
 ```{r echo=FALSE}
 cohen_d <- vet %>% 
@@ -456,6 +459,7 @@ cohen_d <- vet %>%
 
 cohen_d
 ```
+
 The effect size for this analysis (d = `r cohen_d$estimate %>% round(2)`) was found to exceed Cohen’s (1988) convention for a large effect (d = .80).
 
 # 4. RCI
