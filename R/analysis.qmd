@@ -1,0 +1,661 @@
+---
+title: "Comparing the Effectiveness of Treatment for Post-Traumatic Stress Disorder (PTSD) in Veterans and Non-Veterans"
+subtitle: "Promotion Research of Kirsten Reij"
+authors: 
+  - name: "Kirsten Reij" 
+    affiliations:
+      - name: "Psytrec"
+  - name: "Ernst Paul Swens"
+    affiliations:
+        - name: "Swens Data Science"
+format:  
+  html:
+    theme: default
+    toc: true
+    embed-resources: true
+    smooth-scroll: true
+title-block-banner: true
+number-sections: true
+editor: source
+---
+
+## Data Preperation
+
+We examined the data prior to conducting any statistical analysis. We started by reformatting and re-coding variables, followed by a matching procedure. Lastly, we present the descriptive statistics of the matched dataset.
+
+---
+
+### Data Inspection
+
+The following `R` packages were utilized.
+
+```{r}
+#| message = FALSE,
+#| warning = FALSE,
+#| include = TRUE
+library(lubridate)   # package to help calculate age of patients
+library(tableone)    # package to help create descriptive table
+library(magrittr)    # package to add additional pipe options
+library(labelled)    # package to help with labeling columns
+library(MatchIt)     # package for the matching procedure
+library(ggplot2)     # package for creating fancy plots
+library(ggpubr)      # package to combine fancy plots
+library(table1)      # package to create table one
+library(tidyr)       # package to make life easier
+library(dplyr)       # package to make life easier
+```
+
+We performed feature reduction on the raw data, retaining only the variables `veteran`, `starting_date`, `age`, `sex`, `pre_score`, `post_score`, `pre_diagnosis`, `post_diagnosis` and `duration`. We re-coded the variables `veteran`, `starting_date`, and `age`. We created a missingness indicator `follow_up_miss` for the follow-up treatment score. There was one veteran removed without the pre-treatment diagnosis of PTSD.
+
+```{r}
+#| warning = FALSE, 
+#| include = TRUE
+# read in the raw data
+load("data/data_raw.Rdata")
+
+# select relevant columns, clean dates, list-wise omit missing data
+vet <- data %>% 
+  dplyr::select(
+    IsVeteraan, geslacht, StartDatum, geboortedatum, BEHDAGEN_GEPLAND, 
+    CAPS5Score_IN, CAPS5Score_TK, CAPS5Score_FU, diagnose_IN, diagnose_TK) %>% 
+  dplyr::mutate(
+    id              = row_number(),
+    veteran         = as.factor(IsVeteraan),
+    sex             = geslacht,
+    starting_date   = as.Date(StartDatum, "%Y-%m-%d"),
+    age             = trunc((as.Date(geboortedatum, "%Y-%m-%d") %--% 
+                        Sys.Date()) / years(1)),
+    pre_score       = CAPS5Score_IN,
+    post_score      = CAPS5Score_TK,
+    follow_up_miss  = !is.na(CAPS5Score_FU),
+    pre_diagnosis   = factor(
+                        diagnose_IN, levels = c(0, 1), 
+                        labels = c("No PTSD", "PTSD")),
+    post_diagnosis  = factor(
+                        diagnose_TK, levels = c(0, 1), 
+                        labels = c("No PTSD", "PTSD")),
+    duration        = BEHDAGEN_GEPLAND,
+    .keep = "none") %>%
+  dplyr::filter(id != 47) %>%
+  dplyr::filter(pre_diagnosis == "PTSD") %>%
+  na.omit()
+```
+
+The description of the resulting dataset variables is as follows.
+
+| Variable          | Explanation                               | Coding      |
+|:------------------|:------------------------------------------|:------------|
+| `veteran`         | being a veteran                           | factor      |
+| `starting_date`   | date start treatment                      | date        |
+| `sex`             | sex of patient                            | factor      |
+| `age`             | age of patient                            | continuous  |
+| `pre_score`       | pre-treatment CAPS score                  | continuous  |
+| `post_score`      | post-treatment CAPS score                 | continuous  |
+| `follow_up_miss`  | missingness indicator for follow-up score | factor      |
+| `pre_diagnosis`   | diagnosis of PTSD pre-treatment           | factor      |
+| `post_diagnosis`  | diagnosis of PTSD post-treatment          | factor      |
+| `duration`        | treatment duration                        | factor      |
+
+---
+
+### Matching
+
+Before making statistical inferences, we took into account the class imbalance of `veteran` and the potential confounding effects of `age`, `sex`, and `duration`.
+
+```{r}
+#| echo = FALSE
+# compare differences in baseline characteristics
+CreateTableOne(
+  vars = c("sex", "age", "stay"), 
+  strata = "veteran", 
+  data = vet, 
+  test = TRUE)
+```
+
+We noticed a significant class imbalance with only 43 veterans and 3848 non-veterans. We should be careful with the confounding effect of `age` and `sex`, as both standardized mean differences are greater than 0.5. Therefore, we used a nearest neighbor matching procedure. The algorithm matched each veteran with the most similar non-veteran based on `sex`, `age`, `starting_date`, and `duration`.
+
+```{r}
+# set seed to make stochastic results reproducible
+set.seed(123)
+
+# matching non-veterans 
+match <- matchit(
+  veteran ~ starting_date + sex + age + duration, 
+  method  = "nearest",
+  m.order = "largest",
+  replace = FALSE,
+  data    = vet)
+
+# matched data set
+vet <- match.data(match)
+```
+
+After the matching procedure, we observed a significant decrease in the standardized mean difference. This suggests that the matching procedure was successful in controlling the confounding effects of `age`, `sex`, and `duration`.
+
+```{r}
+#| echo = FALSE
+# compare differences in baseline characteristics
+CreateTableOne(
+  vars = c("sex", "age", "duration"), 
+  strata = "veteran", 
+  data = vet, 
+  test = TRUE)
+```
+
+After the matching procedure, we added auxiliary data to describe the sample in more detail.
+
+```{r}
+#| echo = FALSE
+# add auxiliary information
+vet <- vet %>%
+  left_join(
+    data %>% dplyr::select(
+      LEC_10, LEC_8, LEC_6, LEC_1, LEC_2, LEC_3, LEC_4, depressie_IN, dysthymie, 
+      enkelfob, GAS, HYP, OCD, pan, ago, soc, socgegen, sui, id), 
+    by = "id") %>% 
+  dplyr::mutate(
+    id          = row_number(),
+    pair        = subclass,
+    sex         = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
+    veteran     = factor(veteran, labels = c("Non-Veteran", "Veteran")),
+    war         = factor(LEC_10, levels = c(0, 1), labels = c("No", "Yes")),
+    sexual      = factor(LEC_8, levels = c(0, 1), labels = c("No", "Yes")),
+    physical    = factor(LEC_6, levels = c(0, 1), labels = c("No", "Yes")),
+    nature      = as.numeric(LEC_1 | LEC_2 | LEC_3 | LEC_4),
+    nature      = factor(nature, levels = c(0, 1), labels = c("No", "Yes")),
+    mood        = as.numeric(depressie_IN %in% c(1, 2, 3, 7) | dysthymie %in% 1),
+    mood        = factor(mood, levels = c(0, 1), labels = c("No", "Yes")),
+    fear        = as.numeric(enkelfob %in% c(1) | GAS %in% c(1, 2) | HYP %in% c(1) 
+                    | OCD %in% c(1, 2, 3) | pan %in% c(1, 2, 3, 4, 5) | 
+                    ago%in% c(1) | soc%in% c(1) | socgegen%in% c(1)),
+    fear        = factor(fear, levels = c(0, 1), labels = c("No", "Yes")),
+    suicide     = factor(sui, levels = c(0, 1, 2, 3), 
+                    labels = c("None", "Low", "Medium", "High")),
+    diff_score  = post_score - pre_score,
+    duration    = factor(
+                    duration > 7, levels = c(TRUE, FALSE), 
+                    labels = c("8 days or more", "Less than 8 days")),
+    rci         = ifelse(diff_score / 6.76 >  1.96, "1", "2"),
+    rci         = ifelse(diff_score / 6.76 < -1.96, "3", rci),
+      rci = factor(rci, levels = c("1", "2", "3"), 
+      labels = c("Deteriorated", "Unchanged", "Improved"))) %>% 
+  dplyr::select(-c(LEC_10, LEC_8, LEC_6, LEC_1, LEC_2, LEC_3, LEC_4, GAS, HYP, 
+    depressie_IN, dysthymie, enkelfob, pan, ago, soc, socgegen, sui, OCD,
+    distance, weights, subclass)) %>%
+  set_variable_labels(
+    follow_up_miss = "Missingness indicator follow-up",
+    post_diagnosis = "PTSD diagnosis post-treatment",
+    pre_diagnosis  = "PTSD diagnosis pre-treatment",
+    starting_date  = "Treatment starting date",
+    diff_score     = "Difference post and pre-score",
+    post_score     = "Post-treatment CAPS score",
+    pre_score      = "Pre-treatment CAPS score",
+    duration       = "Treatment duration",
+    physical       = "Physical violence", 
+    suicide        = "Suicide risk",
+    veteran        = "Veteran",
+    nature         = "Natural disasters and serious accidents",
+    sexual         = "Sexual violence",
+    fear           = "Anxiety disorders",
+    mood           = "Mood disorders",
+    pair           = "Pair id",
+    rci            = "Reliable change index",
+    war            = "War violence",
+    age            = "Age",
+    sex            = "Sex",
+    id             = "Patient id",
+)
+
+# export the dataframe to rdata and csv
+#save(vet, file = "data/data_processed.RData")
+write.csv(vet, file = "data/data_processed.csv", row.names = FALSE)
+```
+
+---
+
+## Patient Characteristics
+
+The following table presents the patient characteristics.
+
+```{r}
+#| echo = FALSE
+p_value <- function(x, ...) {
+  x <- x[c("Veteran", "Non-Veteran")]
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times = sapply(x, length)))
+  
+  if (is.numeric(y)) p <- t.test(y ~ g)$p.value 
+  else p <- chisq.test(table(y, g), simulate.p.value = TRUE)$p.value
+  
+  c("", sub("<", "&lt;", format.pval(p, digits=3, eps=0.001)))
+}
+
+table1::table1(
+  ~ sex + pre_score + post_score + diff_score + age + war + sexual + physical + 
+    nature + mood + fear + suicide + duration | veteran, 
+  data = vet, 
+  topclass = "Rtable1-zebra", 
+  overall = c(left = "Total"),
+  extra.col=list(`p-value` = p_value))
+```
+\
+Including p-values in Table 1 may be easy, but it is not recommended. This is true whether the data is from an observational study or a randomized trial. If p-values are included to show crude associations between predictors and outcomes, they may not be relevant as adjusted assessments from regression analysis are usually more important. Including p-values in Table 1 to show differences in participant characteristics between exposure groups is not useful. What matters for confounding is the magnitude of differences in the sample, not if the groups differ in the population (as tested by p-values).
+
+---
+
+## Missing Data
+
+There are 46 veterans records in total, with one being a re-registration and another without PTSD diagnosis. Excluding these records, there are 45 veterans. Of those 45, 43 have a CAPS score after treatment and 23 have a follow-up CAPS score. The next section examines whether there are any differences between veterans who have a follow-up CAPS score and those who do not.
+
+---
+
+### Missing Data Mechanisms
+
+First, we will explain some technical terms. Then, we will give a more understandable explanation.
+
+The variable $R$ represents whether or not a follow-up CAPS score is missing, where $R = 0$ represents a missing score and $R = 1$ represents a known score. The distribution of $R$ may depend on the data, represented by $Y$. This data may contain complete and missing information, represented by $Y = (Y_{obs}, Y_{mis})$. The missing data may be due to either design or circumstance, such as a forgotten confounding variable. The parameter of the missing data model is represented by $\psi$, and the general expression of the missing data model is $P(R=0|Y_{obs}, Y_{mis},\psi)$, which expresses the probability that the follow-up score is missing, given the observed and missing data, and the parameter of the missing data model.
+
+We can now formulate the hypothesis that:
+
+$$H_0: P(R=0|Y_{obs}, Y_{mis},\psi)=P(R=0|\psi).$$
+
+This implies that the observations with missing follow-up scores are a random subset of all observations, determined by $\psi$. Therefore, there are no systematic differences between the missing and observed follow-up scores. This is known as missing completely at random (MCAR).
+
+The alternative hypothesis is formulated as:
+
+$$H_1: P(R=0|Y_{obs}, Y_{mis},\psi) \ne P(R=0|\psi)$$
+
+This means that the observations with missing follow-up scores are not a random subset of all observations. The missingness may depend on another observed variable, such as veterans with higher pre-treatment scores being less likely to be lost to follow-up. This is known as a missing at random (MAR) mechanism. If the missingness depends on something that was not measured, it is called missing not at random (MNAR). 
+
+It is not possible to definitively distinguish between MCAR, MAR, and MNAR based on the data alone. However, by analyzing the standardized mean differences between the two groups, we can infer which mechanism is most likely to be the cause of missing data. If the standardized mean differences are small, it suggests that the missing data is likely MCAR. If the standardized mean differences are larger, it suggests that the missing data may be MAR or MNAR.
+
+---
+
+### Exploration
+
+There are minimal variations in `age`, `duration`, `pre_score`, and `post_score` between the veterans with and without follow up scores. This is indicated by the SMD being less than 0.5. 
+
+```{r}
+#| echo = FALSE
+vet %>% 
+  dplyr::filter(veteran == "Veteran") %>%
+  CreateTableOne(
+    vars = c("age", "duration", "pre_score", "post_score"), 
+    strata = "follow_up_miss", 
+    data = ., 
+    test = TRUE) 
+```
+
+This is also supported by the figure which shows that the distributions of the groups overlap nicely.
+
+```{r}
+#| echo       = FALSE,
+#| fig.height = 9, 
+#| fig.width  = 9,
+#| out.width  = "80%",
+#| fig.align  = "center",
+#| dpi        = 600
+plot_histogram <- function(x, x_label) {
+  vet %>%
+  dplyr::filter(veteran == "Veteran") %>%
+  ggplot(aes(!!sym(x), color = follow_up_miss, fill = follow_up_miss)) +
+  geom_histogram(alpha = 0.5, bins = 10, position = "identity") +
+  labs(x = x_label, y = "Count") +
+  scale_fill_manual(
+    name  = "Follow Up", 
+    labels = c("Missing", "Complete"),
+    values = c("#D95319", "#0072BD")) + 
+  scale_color_manual(
+    name = "Follow Up", 
+    labels = c("Missing", "Complete"),
+    values = c("#D95319", "#0072BD")) + 
+  theme_bw() +
+  theme(aspect.ratio = 1)
+}
+
+plot_list <- list(
+  plot_histogram("age", "Age [years]"),
+  plot_histogram("pre_score", "Pre-treatment CAPS score"),
+  plot_histogram("post_score", "Post-treatment CAPS score"),
+  plot_histogram("diff_score", "Difference pre and post-treatment CAPS score")
+) 
+
+ggarrange(plotlist = plot_list, ncol = 2, nrow = 2, common.legend = TRUE)
+
+ggsave(
+  filename = "figures/missingness_distributions.png", 
+  width    = 9, 
+  height   = 9, 
+  dpi      = 600, 
+  bg       = "white")
+```
+
+In conclusion, the reason for the missing follow-up score appears to be random, supporting the assumption that $H_0$ is true.
+
+---
+
+## Marginal Analysis
+
+In this chapter, we investigate the effectiveness of the treatment for both veterans and non-veterans by examining the pre- and post-treatment scores. The figure presents the CAPS scores for both groups, which show a decrease in the CAPS scores. Note, the error bars in the figure below shows the 95% confidence interval of the paired t-test. The following sections will determine if this decrease is statistically significant and clinically meaningful.
+
+```{r}
+#| echo       = FALSE,
+#| fig.height = 4,
+#| fig.width  = 9,
+#| dpi        = 600
+vet %>% 
+  pivot_longer(c(pre_score, post_score), names_to = "score") %>%
+  dplyr::mutate(score = as.factor(score)) %>%
+  Rmisc::summarySEwithin(
+      measurevar= "value", 
+      withinvars = "score", 
+      betweenvars = "veteran",
+      idvar= "id", 
+      conf.interval= 0.95) %>% 
+   ggplot(aes(x=score, y=value, group=veteran)) + 
+      geom_point(
+         aes(color = veteran)) + 
+      geom_line(aes(linetype = veteran, color = veteran)) +
+      theme_bw() +
+      theme(legend.position = "none") + 
+      scale_x_discrete(
+         limits=c("pre_score", "post_score"), 
+         labels=c("Pre-treatment", "Post-treatment")) +
+      labs(x = "Measurement", y = "Mean total CAPS score") +
+      scale_y_continuous(n.breaks = 10, limits = c(0, 80)) + 
+      scale_color_manual(
+         name = "", 
+         values = c("#0072BD", "#D95319")) + 
+      scale_shape_manual(
+         name = "", 
+         values = c(16, 17)) + 
+      scale_linetype_manual(
+         name = "", 
+         values = c(1, 1)) +
+      theme(aspect.ratio = 1)
+
+ggsave(
+  filename = "figures/paired_t_test.png", 
+  width    = 4, 
+  height   = 4, 
+  dpi      = 600, 
+  bg       = "white")
+```
+
+---
+
+### Veterans
+
+For the veteran group, the following hypotheses can be formulated:
+
+- Null Hypothesis ($H_0$): The treatment has no effect on the CAPS score. This is represented by the difference between the pre-treatment and post-treatment scores being greater than or equal to zero ($CAPS_{post} - CAPS_{pre} \ge 0$).
+
+- Alternative Hypothesis ($H_1$): The treatment does decrease the CAPS score. This is represented by the difference between the pre-treatment and post-treatment scores being less than zero ($CAPS_{post} - CAPS_{pre} < 0$).
+
+These hypotheses can be tested using a paired t-test. The effect size can be quantified by Cohen's distance. 
+
+```{r}
+#| echo = FALSE
+t_test <- vet %>% 
+  filter(veteran == "Veteran") %$%
+  t.test(
+    post_score, pre_score, 
+    alternative = "less",
+    paired      = TRUE)
+
+t_test
+```
+
+The results from the pre-test (M = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "pre_score"] %>% sd() %>% round(1)`) and post-test (M = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veteran")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
+
+```{r}
+#| echo = FALSE
+cohen_d <- vet %>% 
+   filter(veteran == "Veteran") %$%
+   effsize::cohen.d(pre_score, post_score)
+
+cohen_d
+```
+
+The effect size for this analysis (d = `r cohen_d$estimate %>% round(2)`) was found to exceed Cohen’s (1988) convention for a large effect (d = .80).
+
+---
+
+### Non-Veterans
+
+For the non-veteran group, the following hypotheses can be formulated:
+
+- Null Hypothesis ($H_0$): The treatment has no effect on the CAPS score. This is represented by the difference between the pre-treatment and post-treatment scores being greater than or equal to zero ($CAPS_{post} - CAPS_{pre} \ge 0$).
+
+- Alternative Hypothesis ($H_1$): The treatment does decrease the CAPS score. This is represented by the difference between the pre-treatment and post-treatment scores being less than zero ($CAPS_{post} - CAPS_{pre} < 0$).
+
+These hypotheses can be tested using a paired t-test. The effect size can be quantified by Cohen's distance. 
+
+```{r}
+#| echo = FALSE
+t_test <- vet %>% 
+   filter(veteran == "Non-Veteran") %$%
+   t.test(
+      post_score, pre_score, 
+      alternative = "less",
+      paired = TRUE
+   )
+
+t_test
+```
+
+The results from the pre-test (M = `r filter(vet, veteran == "Non-Veteran")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Non-Veteran")[, "pre_score"] %>% sd() %>% round(1)`) and post-test (M = `r filter(vet, veteran == "Non-Veteran")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Non-Veteran")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
+
+```{r}
+#| echo = FALSE
+cohen_d <- vet %>% 
+   filter(veteran == "Non-Veteran") %$%
+   effsize::cohen.d(pre_score, post_score)
+
+cohen_d
+```
+
+The effect size for this analysis (d = `r cohen_d$estimate %>% round(2)`) was found to exceed Cohen’s (1988) convention for a large effect (d = .80).
+
+---
+
+## Reliable Change Index
+
+The Reliable Change Index (RCI) is a statistical tool used to determine whether a change in a test score is meaningful or simply due to random measurement error. The RCI takes into account the reliability of the measure, the variability in the obtained scores in the group, and the change in the individual's score and yields a pseudo–z-statistic. It is important to note that the RCI is only a rough estimate of the meaningfulness of a change and does not guarantee that a change is real or significant.
+
+```{r}
+#| echo       = FALSE,
+#| dpi        = 600,
+#| fig.width  = 9, 
+#| fig.height = 4
+vet %>%
+  ggplot(aes(x = pre_score, y = post_score)) +
+    geom_point(aes(color = rci, shape = post_diagnosis)) + 
+    geom_abline(aes(intercept = 0, slope = 1, linetype = "1")) +
+  geom_abline(aes(intercept = 6.76 * 1.96, slope = 1, linetype = "2")) + 
+  geom_abline(aes(intercept = - 6.76 * 1.96, slope = 1, linetype = "2")) + 
+  xlim(0, 80) + 
+  ylim(0, 80) +
+  xlab("Pre-treament CAPS score") + 
+  ylab("Post-treament CAPS score") + 
+  facet_grid(~veteran) + 
+  theme_bw() +
+  scale_linetype_manual(
+    name = "Boundaries",
+    values = c("solid", "dotted"),
+    labels = c("No change", "Reliable change 95% CI", "Criteria")) + 
+  scale_color_manual(
+    name = "RCI",
+    values = c("#D95319", "#0072BD", "#77AC30")) +
+  scale_shape_manual(name = "Diagnosis", values = c(1, 4)) +
+  theme(aspect.ratio = 1)
+
+ggsave(
+  filename = "figures/reliable_change_index.png", 
+  width = 9, 
+  height = 4, 
+  dpi = 600, 
+  bg = "white")
+```
+
+We computed the RCI using a test-retest reliability of 0.73 and the pooled standard deviations of the test scores. A patient was considered to have improved if the CAPS score decreased with `r round(6.76 * 1.96, 2)` points. From the figure it is interesting to observe that for the non-veterans improvement and no PTSD diagnosis post-treatment appear to coincide, whereas this is not the case for veterans. There are veterans that did improve on their scores, but remained with the PTSD diagnosis post-treatment. 
+
+In the veteran group compared to the non-veteran group, more participants improved and less participants remained unchanged according to the RCI. In the non-veteran group, two people deteriorated. 
+
+```{r}
+#| echo = FALSE
+table(vet$veteran, vet$rci)
+```
+
+However, if we look at the diagnosis of PTSD post-treatment, we observe equal numbers. 
+
+```{r}
+#| echo = FALSE
+table(vet$veteran, vet$post_diagnosis)
+```
+
+---
+
+## Group Differences 
+
+In this chapter we will explore the differences between the veterans and non-veterans. 
+
+### Statistical Analysis
+
+In this study we investigate the variations in CAPS scores pre- and post-treatment among veterans and non-veterans, using a Bayesian repeated measures ANOVA. This method involves creating a model comparison that incorporates various fixed effects. The null model includes a fixed effect for time and random intercepts and slopes for time per person. The first model includes all the components of the null model, along with a fixed effect for veteran status. The second model includes all the components of the first model and also incorporates an interaction term between veteran status and time.
+
+In our analysis, we use the Bayes factor to compare two distinct models by computing the ratio of their marginal likelihoods. In particular, we utilize the $\text{BF}_{01}$, which gauges the relative strength of evidence in favor of the null model compared to an alternative model. To determine the degree of evidence strength, we follow the widely used guidelines proposed by Lee and Wagenmakers (2013).
+
+In our analysis, we adopted an uninformative prior for the model prior, which entails assigning equal prior probability to each of the competing models before observing any data. This means that we did not express any prior preference or bias towards any particular model. By using an uninformative prior, we allowed the data to have a greater impact on the posterior distribution over models.
+
+In our analysis, we employed the standard multivariate Cauchy distribution in JASP (version 0.17.1) as the prior for the effects. To ensure the robustness of our results, we also calculated various Bayes factors for a range of scale parameters, from 0.0 to 1.5, for the fixed effects.
+
+### Results
+
+| Models | P(M) | P(M\|data) | BF$_\text{M}$ | BF$_\text{01}$ | error % |
+|------------|:---:|:---:|:---:|:---:|:---:|
+| Null model | 0.333 | 0.739 | 5.664 | 1 |  |
+| Veteran | 0.333 | 0.18 | 0.44 | 4.097 | 2.456 |
+| Veteran + Veteran × Time | 0.333 | 0.081 | 0.175 | 9.173 | 2.698 |
+
+Table: Model Comparisons
+
+According to the first table, the model probability of the null model increased after observing the data, while the probabilities of the other models decreased. Specifically, the data were four times more likely to have originated from the null model than from model one, and nine times more likely to have come from the null model than from model two. These findings suggest moderate evidence in favor of the null hypothesis, indicating that there is no fixed effect of veteran status and no interaction between veteran status and time.
+
+| Effects | P(incl) | P(excl) | P(incl\|data) | P(excl\|data) | BF$_\text{excl}$ |
+|------------|:---:|:---:|:---:|:---:|:---:|
+| veteran | 0.667 | 0.333 | 0.261 | 0.739 | 5.664 |
+| Time ✻ veteran | 0.333 | 0.667 | 0.081 | 0.919 | 5.706 |
+
+Table: Analysis of Effects
+
+In the second table, we observe that when we average across the models, the evidence for excluding the fixed effects is 5.5 times greater than the evidence for including them. This suggests that the data support the null hypothesis more strongly than the alternative hypotheses that include the fixed effects. 
+
+| Variable | Level | Mean | SD | Lower CI | Upper CI |
+|-------|-----------|:---:|:---:|:---:|:---:|
+| Intercept |  | 29.49 | 1.066 | 27.353 | 31.592 |
+| Veteran | Non-Veteran | 0.661 | 1.017 | -1.401 | 2.686 |
+|  | Veteran | -0.661 | 1.017 | -2.730 | 1.357 |
+| Time | Pre-score | 14.074 | 0.828 | 12.410 | 15.688 |
+|  | Post-score | -14.074 | 0.828 | -15.832 | -12.516 |
+| Veteran × Time | Non-Veteran & Pre-score | -0.902 | 0.780 | -2.488 | 0.656 |
+|  | Non-Veteran & Post-score | 0.902 | 0.780 | -0.669 | 2.475 |
+|  | Veteran & Pre-score | 0.902 | 0.780 | -0.669 | 2.475 |
+|  | Veteran & Post-score | -0.902 | 0.780 | -2.488 | 0.656 |
+
+Table: Model Averaged Posterior Summary
+
+The final table displays the Model Averaged Posterior Summary, which presents the 95% credible intervals for the fixed effects. Notably, the credible intervals for the fixed effects of veteran status and the interaction between time and veteran status include zero.
+
+### Robustness
+
+```{r}
+#| echo    = FALSE,
+#| warning = FALSE,
+#| dpi     = 600
+bayes <- read.csv("data/data_bayes_factor.csv")
+
+ggplot(bayes, aes(x = fixed_scale, y = bayes_factor)) +
+  geom_rect(
+    xmin = 0.25, xmax = 1.00, ymin = -Inf, ymax = Inf, 
+    fill = "grey90") + 
+  geom_hline(yintercept = 1) + 
+  geom_hline(
+    yintercept = c(1/3, 3, 10, 30, 100), 
+    color      = "darkgrey", 
+    linetype   = "dotted") + 
+  geom_segment(
+    aes(x = 0.5, y = 0, xend = 0.5, yend = 9.2), 
+    linetype = 2) +
+  geom_segment(
+    aes(x = -Inf, y = 9.2, xend = 0.5, yend = 9.2), 
+    linetype = 2) +
+  geom_smooth(
+    aes(group = model, color = model),
+    method = "lm", 
+    fullrange = TRUE,
+    formula = "y ~ poly(x, 5, raw = TRUE)", 
+    se = FALSE) + 
+  geom_segment(aes(x = 1.5, y = 1.25, xend = 1.5, yend = 2.5),
+    arrow = arrow(length = unit(0.15, "cm"))) + 
+  geom_segment(aes(x = 1.5, y = 0.80, xend = 1.5, yend = 0.4),
+    arrow = arrow(length = unit(0.15, "cm"))) + 
+  annotate(
+    "label", 
+    x = 1.475, y = 1.72, size = 2.5, label.size = NA, fill = NA,
+    label = "Support ~ `for` ~ H[0]",
+    hjust = 1,
+    parse = TRUE) +
+  annotate(
+    "label", 
+    x = 1.475, y = 0.55, size = 2.5, label.size = NA, fill = NA,
+    label = "Support ~ `for` ~ H[1]",
+    hjust = 1,
+    parse = TRUE) +
+  annotate(
+    "label", 
+    x = 0.625, y = 57.5, size = 2.5, label.size = NA, fill = NA,
+    label = "Plausable scale\nparameters", color = "grey20") +
+  scale_x_continuous(
+    limits = c(0, 1.5),
+    name = "Cauchy prior width") +
+  scale_y_continuous(
+    name = expression(~BF["01"]),
+    limits = c(1/3, 100),
+    breaks = c(1/3, 1, 3, 10, 30, 100), 
+    labels = c("1/3", "1", "3", "10", "30", "100"),
+    trans = "log10",
+  sec.axis = sec_axis(
+    name   = "Evidence",
+    breaks = c(0.57, 1.75, 5.5, 17.5, 55), 
+    labels = c("Anecdotal","Anecdotal", "Moderate", "Strong", "Very Strong"),
+    trans  = ~.)) + 
+  theme_bw() + 
+  theme(
+    aspect.ratio = 1,
+    legend.position  = "top",
+    panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(),
+    axis.ticks.y     = element_line(color = NA)) +
+  scale_color_manual(
+    name = "", 
+    labels = c("Veteran", "Veteran + Veteran × Time"),
+    values = c("#D95319", "#0072BD"))
+
+ggsave(
+  filename = "figures/bayes_robustness.png", 
+  width    = 4, 
+  height   = 4, 
+  dpi      = 600, 
+  bg       = "white")
+```
+
+In Bayesian analysis with JASP, the choice of Cauchy prior width for the fixed effects can impact the strength of evidence supporting the null hypothesis. Setting the prior width to a small value suggests a strong belief in the effect of fixed factors, resulting in less mass in the posterior distribution close to zero, thus weaker evidence for the null hypothesis. Conversely, a larger prior width implies weaker belief in the effect of fixed factors and more mass close to zero, resulting in stronger evidence supporting the null hypothesis.
+
+The figure above displays the robustness of evidence across different Cauchy prior widths, indicating moderate to strong evidence in favor of the null model across all plausible scale parameters according to Kruschke (2011).
+
+## References
+
+Kruschke, J. K. (2011). Bayesian assessment of null values via parameter estimation and model comparison. Perspectives on Psychological Science, 6(3), 299-312. https://doi.org/10.1177/1745691611406925
+
+Lee, M. D., & Wagenmakers, E.-J. (2013). Bayesian cognitive modeling: A practical course. Cambridge University Press.
