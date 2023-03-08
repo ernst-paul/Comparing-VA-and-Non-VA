@@ -650,9 +650,7 @@ ggsave(
   bg       = "white")
 ```
 
-In Bayesian analysis with JASP, the choice of Cauchy prior width for the fixed effects can impact the strength of evidence supporting the null hypothesis. Setting the prior width to a small value suggests a strong belief in the effect of fixed factors, resulting in less mass in the posterior distribution close to zero, thus weaker evidence for the null hypothesis. Conversely, a larger prior width implies weaker belief in the effect of fixed factors and more mass close to zero, resulting in stronger evidence supporting the null hypothesis.
-
-The figure above displays the robustness of evidence across different Cauchy prior widths, indicating moderate to strong evidence in favor of the null model across all plausible scale parameters according to Kruschke (2011).
+In Bayesian analysis with JASP, the choice of Cauchy prior width for the fixed effects can impact the strength of evidence supporting the null hypothesis. When the prior width is set to a small value, the differences between the null and alternative hypotheses become smaller, which results in a Bayes factor that is closer to 1. The figure above displays the robustness of evidence across different Cauchy prior widths, indicating moderate to strong evidence in favor of the null model across all plausible scale parameters according to Kruschke (2011).
 
 ## References
 
