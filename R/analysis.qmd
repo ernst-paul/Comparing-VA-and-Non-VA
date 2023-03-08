@@ -207,7 +207,12 @@ vet <- vet %>%
 )
 
 # export the dataframe to rdata and csv
-#save(vet, file = "data/data_processed.RData")
+write.csv(vet, file = "data/data_processed.csv", row.names = FALSE)
+```
+
+```{r}
+#| include = FALSE
+load("data/data_processed.RData")
 write.csv(vet, file = "data/data_processed.csv", row.names = FALSE)
 ```
 
@@ -516,7 +521,7 @@ table(vet$veteran, vet$post_diagnosis)
 
 ---
 
-## Group Differences 
+## Group Differences (RM-ANOVA)
 
 In this chapter we will explore the differences between the veterans and non-veterans. 
 
@@ -657,3 +662,94 @@ In Bayesian analysis with JASP, the choice of Cauchy prior width for the fixed e
 Kruschke, J. K. (2011). Bayesian assessment of null values via parameter estimation and model comparison. Perspectives on Psychological Science, 6(3), 299-312. https://doi.org/10.1177/1745691611406925
 
 Lee, M. D., & Wagenmakers, E.-J. (2013). Bayesian cognitive modeling: A practical course. Cambridge University Press.
+
+
+## Group Differences (ANCOVA)
+
+This chapter explores if there exists a difference in treatment response between the veterans and non-veterans. 
+
+### Analysis
+
+Simply put, the Bayesian ANCOVA quantifies how likely the data comes from one the presented models below.
+
+```{r echo=FALSE, fig.align="center", fig.height=4, fig.width=9, message=FALSE, warning=FALSE, dpi=300}
+list(
+  vet %>%
+    ggplot(aes(x = pre_score, y = post_score)) +
+    geom_point() + 
+    geom_smooth(method="lm", formula= y ~ x, se = FALSE, fullrange = TRUE) + 
+    theme_bw() + 
+    xlim(0, 80) + 
+    ylim(0, 80) +
+    xlab("Pre-treament CAPS score") + 
+    ylab("Post-treament CAPS score") + 
+    ggtitle("Pre-treatment") + 
+    theme(aspect.ratio = 1),
+  vet %>%
+    ggplot(aes(x = pre_score, y = post_score, color = veteran)) +
+    geom_point() + 
+    geom_smooth(method="lm", formula= y ~ x, se = FALSE, fullrange = TRUE) + 
+    theme_bw() + 
+    xlim(0, 80) + 
+    ylim(0, 80) +
+    xlab("Pre-treament CAPS score") + 
+    ylab("Post-treament CAPS score") + 
+    ggtitle("Pre-treatment and Veteran") + 
+    scale_color_manual(name = "", values = c("#0072BD", "#D95319")) +
+    theme(aspect.ratio = 1)) %>%
+ggarrange(
+  plotlist = ., 
+  ncol = 2, 
+  nrow = 1,
+  common.legend = TRUE)
+```
+
+The following tables present the ANCOVA results.
+
+| Model Comparison      |        |              |        |           |         |
+|-----------------------|--------|--------------|--------|-----------|---------|
+| **Models**            | $P(M)$ | $P(M\|data)$ | $BF_M$ | $BF_{10}$ | error % |
+| Null model            |  0.500 |     0.775    |  3.445 |   1.000   |         |
+| Veteran               |  0.500 |     0.225    |  0.290 |   0.290   |  0.967  |
+
+**Note** All models include pre-score 
+
+Only the null model had their model odds $P(M\|data)$ increased after observing the data. The null model was most probable, and to the Veteran model using the Bayes Factor $BF_{10}$. The data are `r round(1.000/0.290, 2)` times more likely under the null model than the veteran model. Or in other words, it is `r round(1.000/0.290, 2)` times more likely that group membership has no effect on treatment success. 
+
+From the model averaged posterior summary, we can observe that the 95% credible interval of both levels of the veteran effect contains the value zero. This also supports that there is no effect of group membership on the effectiveness of treatment. 
+
+| Model Averaged Posterior Summary |             |          |        |                  |                  |
+|----------------------------------|-------------|----------|--------|------------------|------------------|
+| **Variable**                     | **Level**   | **Mean** | **SD** | **95% CI Lower** | **95% CI Upper** |
+| Intercept                        |             |  15.803  |  1.797 |      12.160      |      19.379      |
+| Veteran                          | Non-Veteran |   2.150  |  1.698 |      -1.255      |       5.480      |
+|                                  | Veteran     |  -2.150  |  1.698 |      -5.512      |       1.224      |
+| Pre Score                        |             |   0.332  |  0.232 |      -0.132      |       0.800      |
+
+
+### Assumptions 
+
+For the ANCOVA, there are the following assumptions: 
+
+- Linearity
+- Homogeneity of regression slopes
+- Normality of residuals
+
+Next, we are going to test these assumptions.
+
+There appears to be a linear relationship between pre-test and post-test CAPS score for each group, as assessed by visual inspection of a scatter plot.
+
+```{r}
+# homogeneity of regression slopes
+summary(lm(post_score ~ pre_score * veteran, data = vet))
+```
+
+From the non-significance of the interaction term, the homogeneity of regression slopes assumption appears to hold. This is also supported by a visual inspection from the figure above.  
+
+```{r}
+# normality of residuals
+model <- lm(post_score ~ pre_score + veteran, data = vet)
+plot(model, which = 2)
+```
+
+The QQ plot shows that the normality of residuals holds. There is a slight deviation at the tails, but this is often the case in practice.
