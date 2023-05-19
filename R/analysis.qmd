@@ -151,10 +151,11 @@ vet <- vet %>%
   left_join(
     data %>% dplyr::select(
       LEC_10, LEC_8, LEC_6, LEC_1, LEC_2, LEC_3, LEC_4, depressie_IN, dysthymie, 
-      enkelfob, GAS, HYP, OCD, pan, ago, soc, socgegen, sui, id), 
+      enkelfob, GAS, HYP, OCD, pan, ago, soc, socgegen, sui, enkelfob, GAS, OCD, 
+      pan, soc, ALC_AFH, ALC_MISB, ANO, BOU, MID_MISB_Huid, MID_AFH_LIFE, 
+      H_MANIE, PSYCHOSE, id), 
     by = "id") %>% 
   dplyr::mutate(
-    id          = row_number(),
     pair        = subclass,
     sex         = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
     veteran     = factor(veteran, levels = c(1, 0), labels = c("Veterans", "Non-Veterans")),
@@ -177,11 +178,36 @@ vet <- vet %>%
                     labels = c("8 days or more", "Less than 8 days")),
     rci         = ifelse(diff_score / 6.76 >  1.96, "1", "2"),
     rci         = ifelse(diff_score / 6.76 < -1.96, "3", rci),
-      rci = factor(rci, levels = c("1", "2", "3"), 
-      labels = c("Worsening", "Unchanged", "Improved"))) %>% 
+    rci         = factor(
+                    rci, levels = c("1", "2", "3"), 
+                    labels = c("Worsening", "Unchanged", "Improved")),
+    dep = ifelse(depressie_IN %in% c(1, 2, 3, 7), 1, 0),
+    pho = ifelse(enkelfob == 1, 1, ifelse(enkelfob == 0, 0, NA)),
+    gas = ifelse(GAS %in% c(1, 2, 3), 1, 0),
+    ocd = ifelse(OCD %in% c(1, 2, 3), 1, ifelse(OCD == 0, 0, NA)),
+    pan = ifelse(pan %in% c(1, 2, 3, 4, 5), 1, ifelse(pan == 0, 0, NA)),
+    soc = ifelse(soc == 1, 1, ifelse(soc == 0, 0, NA)),
+    alc = ifelse(ALC_AFH == 1 | ALC_MISB == 1, 1, 0),
+    eat = ifelse(ANO == 1 | BOU == 1, 1, 0),
+    sub = ifelse(MID_MISB_Huid == 1 | MID_AFH_LIFE == 1, 1, 0),
+    man = ifelse(H_MANIE == 1, 1, ifelse(H_MANIE == 0, 0, NA)),
+    psy = ifelse(PSYCHOSE == 1, 1, ifelse(PSYCHOSE == 0, 0, NA)),
+    dep = factor(dep, levels = c(0, 1), labels = c("No", "Yes")),
+    pho = factor(pho, levels = c(0, 1), labels = c("No", "Yes")),
+    gas = factor(gas, levels = c(0, 1), labels = c("No", "Yes")),
+    ocd = factor(ocd, levels = c(0, 1), labels = c("No", "Yes")),
+    pan = factor(pan, levels = c(0, 1), labels = c("No", "Yes")),
+    soc = factor(soc, levels = c(0, 1), labels = c("No", "Yes")),
+    alc = factor(alc, levels = c(0, 1), labels = c("No", "Yes")),
+    eat = factor(eat, levels = c(0, 1), labels = c("No", "Yes")),
+    sub = factor(sub, levels = c(0, 1), labels = c("No", "Yes")),
+    man = factor(man, levels = c(0, 1), labels = c("No", "Yes")),
+    psy = factor(psy, levels = c(0, 1), labels = c("No", "Yes"))
+    ) %>% 
   dplyr::select(-c(LEC_10, LEC_8, LEC_6, LEC_1, LEC_2, LEC_3, LEC_4, GAS, HYP, 
-    depressie_IN, dysthymie, enkelfob, pan, ago, soc, socgegen, sui, OCD,
-    distance, weights, subclass)) %>%
+    depressie_IN, dysthymie, enkelfob, ago, socgegen, sui, OCD, ALC_AFH, ANO,
+    distance, weights, subclass, GAS, MID_MISB_Huid, H_MANIE, PSYCHOSE, BOU,
+    ALC_MISB, MID_AFH_LIFE)) %>%
   set_variable_labels(
     follow_up_miss = "Missingness indicator follow-up",
     post_diagnosis = "PTSD diagnosis post-treatment",
@@ -199,11 +225,22 @@ vet <- vet %>%
     fear           = "Anxiety disorders",
     mood           = "Mood disorders",
     pair           = "Pair id",
+    ocd            = "Obsessive compulsive disorder",
+    sub            = "Substance dependency or abuse",
+    gas            = "Generalised anxiety disorder",
+    alc            = "Alcohol dependency or abuse",
+    soc            = "Social anxiety disorder",
     rci            = "Reliable change index",
+    psy            = "Psychotic disorders",
+    eat            = "Eating disorder",
+    pan            = "Panic disorder",
     war            = "War violence",
-    age            = "Age",
+    dep            = "Depression",
+    man            = "Hypomania",
+    pho            = "Phobia",
     sex            = "Sex",
-    id             = "Patient id",
+    age            = "Age",
+    id             = "Patient id"
 )
 
 # export the dataframe to rdata and csv
@@ -229,7 +266,7 @@ vet <- vet %>% mutate(
 
 The following table presents the patient characteristics.
 
-```{r}
+```{r warning = FALSE}
 #| echo = FALSE
 p_value <- function(x, ...) {
   x <- x[c("Veterans", "Non-Veterans")]
@@ -244,7 +281,8 @@ p_value <- function(x, ...) {
 
 table1::table1(
   ~ sex + pre_score + post_score + diff_score + age + war + sexual + physical + 
-    nature + mood + fear + suicide + duration | veteran, 
+    nature + mood + fear + suicide + duration +  dep + pho + gas + ocd + pan + 
+    soc + alc + eat + sub + man + psy | veteran, 
   data = vet, 
   topclass = "Rtable1-zebra", 
   overall = c(left = "Total"),
