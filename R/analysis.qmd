@@ -317,7 +317,7 @@ Including p-values in Table 1 may be easy, but it is not recommended. This is tr
 
 ## Missing Data
 
-There are 46 veterans records in total, with one being a re-registration and another without PTSD diagnosis. Excluding these records, there are 45 veterans. Of those 45, 43 have a CAPS score after treatment and 23 have a follow-up CAPS score. The next section examines whether there are any differences between veterans who have a follow-up CAPS score and those who do not.
+There are 47 veterans records in total, with one being a re-registration and another without PTSD diagnosis. Excluding these records, there are 45 veterans. Of those 45, 43 have a CAPS score after treatment and 23 have a follow-up CAPS score. The next section examines whether there are any differences between veterans who have a follow-up CAPS score and those who do not.
 
 ---
 
