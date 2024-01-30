@@ -8,6 +8,7 @@ authors:
   - name: "Ernst Paul Swens"
     affiliations:
         - name: "Swens Data Science"
+version: 1
 format:  
   html:
     theme: default
@@ -45,39 +46,45 @@ library(tidyr)       # package to make life easier
 library(dplyr)       # package to make life easier
 ```
 
-We performed feature reduction on the raw data, retaining only the variables `veteran`, `starting_date`, `age`, `sex`, `pre_score`, `post_score`, `pre_diagnosis`, `post_diagnosis` and `duration`. We re-coded the variables `veteran`, `starting_date`, and `age`. We created a missingness indicator `follow_up_miss` for the follow-up treatment score. There was one veteran removed without the pre-treatment diagnosis of PTSD.
+We performed feature reduction on the raw data, retaining only the variables `cin5`, `veteran`, `starting_date`, `age`, `sex`, `pre_score`, `post_score`, `pre_diagnosis`, `post_diagnosis` and `duration`. We re-coded the variables `veteran`, `starting_date`, and `age`. We created a missingness indicator `follow_up_miss` for the follow-up treatment score. There was one veteran removed without the pre-treatment diagnosis of PTSD.
 
 ```{r}
-#| warning = FALSE, 
-#| include = TRUE
-# read in the raw data
-load("data/data_raw.Rdata")
+#| warning: false
+data <- readxl::read_excel("data/data.xlsx")
+data = dplyr::mutate(data, id = row_number())
 
-# select relevant columns, clean dates, list-wise omit missing data
 vet <- data %>% 
   dplyr::select(
-    IsVeteraan, geslacht, StartDatum, geboortedatum, BEHDAGEN_GEPLAND, 
-    CAPS5Score_IN, CAPS5Score_TK, CAPS5Score_FU, diagnose_IN, diagnose_TK) %>% 
+    id, CIN5, IsVeteraan, geslacht, StartDatum, geboortedatum, BEHDAGEN_GEPLAND, 
+    CAPS5Score_IN, CAPS5Score_TK, CAPS5Score_FU, diagnose_IN, diagnose_TK,
+    BIJZ
+  ) %>%
   dplyr::mutate(
-    id              = row_number(),
-    veteran         = as.factor(IsVeteraan),
-    sex             = geslacht,
-    starting_date   = as.Date(StartDatum, "%Y-%m-%d"),
-    age             = trunc((as.Date(geboortedatum, "%Y-%m-%d") %--% 
-                        Sys.Date()) / years(1)),
-    pre_score       = CAPS5Score_IN,
-    post_score      = CAPS5Score_TK,
-    follow_up_miss  = !is.na(CAPS5Score_FU),
-    pre_diagnosis   = factor(
-                        diagnose_IN, levels = c(0, 1), 
-                        labels = c("No PTSD", "PTSD")),
-    post_diagnosis  = factor(
-                        diagnose_TK, levels = c(0, 1), 
-                        labels = c("No PTSD", "PTSD")),
-    duration        = BEHDAGEN_GEPLAND,
-    .keep = "none") %>%
-  dplyr::filter(id != 47) %>%
+    id = id,
+    cin5 = CIN5,
+    veteran = as.factor(IsVeteraan),
+    sex = geslacht,
+    starting_date = as.Date(StartDatum, "%Y-%m-%d"),
+    age = as.Date(geboortedatum, "%Y-%m-%d") %--% as.Date("2024-01-12"),
+    age = trunc(age / years(1)),
+    pre_score = CAPS5Score_IN,
+    post_score = CAPS5Score_TK,
+    follow_up_miss = !is.na(CAPS5Score_FU),
+    pre_diagnosis = factor(
+      diagnose_IN, 
+      levels = c(0, 1), 
+      labels = c("No PTSD", "PTSD")
+    ),
+    post_diagnosis = factor(
+      diagnose_TK, 
+      levels = c(0, 1), 
+      labels = c("No PTSD", "PTSD")
+    ),
+    duration = BEHDAGEN_GEPLAND,
+    .keep = "none"
+  ) %>% 
   dplyr::filter(pre_diagnosis == "PTSD") %>%
+  dplyr::filter(cin5 != 1580) %>%
   na.omit()
 ```
 
@@ -85,6 +92,7 @@ The description of the resulting dataset variables is as follows.
 
 | Variable          | Explanation                               | Coding      |
 |:------------------|:------------------------------------------|:------------|
+| `cin5`            | person id                                 | integer     |
 | `veteran`         | being a veteran                           | factor      |
 | `starting_date`   | date start treatment                      | date        |
 | `sex`             | sex of patient                            | factor      |
@@ -109,10 +117,11 @@ CreateTableOne(
   vars = c("sex", "age", "duration"), 
   strata = "veteran", 
   data = vet, 
-  test = TRUE)
+  test = TRUE
+)
 ```
 
-We noticed a significant class imbalance with only 43 veterans and 3848 non-veterans. We should be careful with the confounding effect of `age` and `sex`, as both standardized mean differences are greater than 0.5. Therefore, we used a nearest neighbor matching procedure. The algorithm matched each veteran with the most similar non-veteran based on `sex`, `age`, `starting_date`, and `duration`.
+We noticed a significant class imbalance with only 42 veterans and 3850 non-veterans. We should be careful with the confounding effect of `age` and `sex`, as both standardized mean differences are greater than 0.5. Therefore, we used a nearest neighbor matching procedure. The algorithm matched each veteran with the most similar non-veteran based on `sex`, `age`, `starting_date`, and `duration`.
 
 ```{r}
 # set seed to make stochastic results reproducible
@@ -120,11 +129,12 @@ set.seed(123)
 
 # matching non-veterans 
 match <- matchit(
-  veteran ~ starting_date + sex + age + duration, 
+  veteran ~ sex + age + starting_date + duration, 
   method  = "nearest",
   m.order = "largest",
   replace = FALSE,
-  data    = vet)
+  data    = vet
+)
 
 # matched data set
 vet <- match.data(match)
@@ -139,13 +149,21 @@ CreateTableOne(
   vars = c("sex", "age", "duration"), 
   strata = "veteran", 
   data = vet, 
-  test = TRUE)
+  test = TRUE
+)
 ```
 
 After the matching procedure, we added auxiliary data to describe the sample in more detail.
 
+
+
+
 ```{r}
 #| echo = FALSE
+c <- sd(vet$pre_score)
+r <- 0.73
+c <- sqrt(2 * (c * sqrt(1 - r))^2) 
+
 # add auxiliary information
 vet <- vet %>%
   left_join(
@@ -158,29 +176,42 @@ vet <- vet %>%
   dplyr::mutate(
     pair        = subclass,
     sex         = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
-    veteran     = factor(veteran, levels = c(1, 0), labels = c("Veterans", "Non-Veterans")),
-    war         = factor(LEC_10, levels = c(0, 1), labels = c("No", "Yes")),
-    sexual      = factor(LEC_8, levels = c(0, 1), labels = c("No", "Yes")),
-    physical    = factor(LEC_6, levels = c(0, 1), labels = c("No", "Yes")),
-    nature      = as.numeric(LEC_1 | LEC_2 | LEC_3 | LEC_4),
-    nature      = factor(nature, levels = c(0, 1), labels = c("No", "Yes")),
-    mood        = as.numeric(depressie_IN %in% c(1, 2, 3, 7) | dysthymie %in% 1),
-    mood        = factor(mood, levels = c(0, 1), labels = c("No", "Yes")),
-    fear        = as.numeric(enkelfob %in% c(1) | GAS %in% c(1, 2) | HYP %in% c(1) 
-                    | OCD %in% c(1, 2, 3) | pan %in% c(1, 2, 3, 4, 5) | 
-                    ago%in% c(1) | soc%in% c(1) | socgegen%in% c(1)),
-    fear        = factor(fear, levels = c(0, 1), labels = c("No", "Yes")),
-    suicide     = factor(sui, levels = c(0, 1, 2, 3), 
-                    labels = c("None", "Low", "Medium", "High")),
-    diff_score  = post_score - pre_score,
-    duration    = factor(
-                    duration > 7, levels = c(TRUE, FALSE), 
-                    labels = c("8 days or more", "Less than 8 days")),
-    rci         = ifelse(diff_score / 6.76 >  1.96, "1", "2"),
-    rci         = ifelse(diff_score / 6.76 < -1.96, "3", rci),
-    rci         = factor(
-                    rci, levels = c("1", "2", "3"), 
-                    labels = c("Worsening", "Unchanged", "Improved")),
+    veteran     = factor(
+      veteran, 
+      levels = c(1, 0), 
+      labels = c("Veterans", "Non-Veterans")
+    ),
+    war = factor(LEC_10, levels = c(0, 1), labels = c("No", "Yes")),
+    sexual = factor(LEC_8, levels = c(0, 1), labels = c("No", "Yes")),
+    physical = factor(LEC_6, levels = c(0, 1), labels = c("No", "Yes")),
+    nature = as.numeric(LEC_1 | LEC_2 | LEC_3 | LEC_4),
+    nature = factor(nature, levels = c(0, 1), labels = c("No", "Yes")),
+    mood = as.numeric(depressie_IN %in% c(1, 2, 3, 7) | dysthymie %in% 1),
+    mood = factor(mood, levels = c(0, 1), labels = c("No", "Yes")),
+    fear = as.numeric(
+      enkelfob %in% c(1) | GAS %in% c(1, 2) | HYP %in% c(1) | 
+      OCD %in% c(1, 2, 3) | pan %in% c(1, 2, 3, 4, 5) | ago %in% c(1) | 
+      soc %in% c(1) | socgegen %in% c(1)
+    ),
+    fear = factor(fear, levels = c(0, 1), labels = c("No", "Yes")),
+    suicide = factor(
+      sui, 
+      levels = c(0, 1, 2, 3), 
+      labels = c("None", "Low", "Medium", "High")
+    ),
+    diff_score = post_score - pre_score,
+    duration = factor(
+      duration > 7, 
+      levels = c(TRUE, FALSE),
+      labels = c("8 days or more", "Less than 8 days")
+    ),
+    rci = ifelse(diff_score / c >  1.96, "1", "2"),
+    rci = ifelse(diff_score / c < -1.96, "3", rci),
+    rci = factor(
+      rci, 
+      levels = c("1", "2", "3"), 
+      labels = c("Worsening", "Unchanged", "Improved")
+    ),
     dep = ifelse(depressie_IN %in% c(1, 2, 3, 7), 1, 0),
     pho = ifelse(enkelfob == 1, 1, ifelse(enkelfob == 0, 0, NA)),
     gas = ifelse(GAS %in% c(1, 2, 3), 1, 0),
@@ -204,10 +235,14 @@ vet <- vet %>%
     man = factor(man, levels = c(0, 1), labels = c("No", "Yes")),
     psy = factor(psy, levels = c(0, 1), labels = c("No", "Yes"))
     ) %>% 
-  dplyr::select(-c(LEC_10, LEC_8, LEC_6, LEC_1, LEC_2, LEC_3, LEC_4, GAS, HYP, 
-    depressie_IN, dysthymie, enkelfob, ago, socgegen, sui, OCD, ALC_AFH, ANO,
-    distance, weights, subclass, GAS, MID_MISB_Huid, H_MANIE, PSYCHOSE, BOU,
-    ALC_MISB, MID_AFH_LIFE)) %>%
+  dplyr::select(
+    -c(
+      LEC_10, LEC_8, LEC_6, LEC_1, LEC_2, LEC_3, LEC_4, GAS, HYP, depressie_IN,
+      dysthymie, enkelfob, ago, socgegen, sui, OCD, ALC_AFH, ANO, distance, 
+      weights, subclass, GAS, MID_MISB_Huid, H_MANIE, PSYCHOSE, BOU, ALC_MISB,
+      MID_AFH_LIFE
+    )
+  ) %>%
   set_variable_labels(
     follow_up_miss = "Missingness indicator follow-up",
     post_diagnosis = "PTSD diagnosis post-treatment",
@@ -245,19 +280,6 @@ vet <- vet %>%
 
 # export the dataframe to rdata and csv
 write.csv(vet, file = "data/data_processed.csv", row.names = FALSE)
-```
-
-```{r}
-#| include = FALSE
-load("data/data_processed.RData")
-write.csv(vet, file = "data/data_processed.csv", row.names = FALSE)
-vet <- vet %>% mutate(
-  veteran = factor(
-    veteran, 
-    levels = c("Veterans", "Non-Veterans"),
-    labels = c("Veterans", "Non-Veterans")
-  )
-)
 ```
 
 ---
@@ -333,7 +355,8 @@ vet %>%
     vars = c("age", "duration", "pre_score", "post_score"), 
     strata = "follow_up_miss", 
     data = ., 
-    test = TRUE) 
+    test = TRUE
+  ) 
 ```
 
 This is also supported by the figure which shows that the distributions of the groups overlap nicely.
@@ -377,7 +400,8 @@ ggsave(
   width    = 9, 
   height   = 9, 
   dpi      = 600, 
-  bg       = "white")
+  bg       = "white"
+)
 ```
 
 In conclusion, the reason for the missing follow-up score appears to be random, supporting the assumption that $H_0$ is true.
@@ -425,7 +449,8 @@ ggsave(
   width    = 4.5, 
   height   = 4.5, 
   dpi      = 600, 
-  bg       = "white")
+  bg       = "white"
+)
 ```
 
 ---
@@ -452,7 +477,7 @@ t_test <- vet %>%
 t_test
 ```
 
-The results from the pre-test (M = `r filter(vet, veteran == "Veterans")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veterans")[, "pre_score"] %>% sd() %>% round(1)`) and post-test (M = `r filter(vet, veteran == "Veterans")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Veterans")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
+The results from the pre-test (M = `r round(mean(dplyr::filter(vet, veteran == "Veterans")$pre_score), 1)`, SD = `r round(sd(dplyr::filter(vet, veteran == "Veterans")$pre_score), 1)`) and post-test (M = `r round(mean(dplyr::filter(vet, veteran == "Veterans")$post_score), 1)`, SD = `r round(sd(dplyr::filter(vet, veteran == "Veterans")$post_score), 1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
 
 ```{r}
 #| echo = FALSE
@@ -490,7 +515,7 @@ t_test <- vet %>%
 t_test
 ```
 
-The results from the pre-test (M = `r filter(vet, veteran == "Non-Veterans")[, "pre_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Non-Veterans")[, "pre_score"] %>% sd() %>% round(1)`) and post-test (M = `r filter(vet, veteran == "Non-Veterans")[, "post_score"] %>% mean() %>% round(1)`, SD = `r filter(vet, veteran == "Non-Veterans")[, "post_score"] %>% sd() %>% round(1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
+The results from the pre-test (M = `r round(mean(dplyr::filter(vet, veteran == "Veterans")$pre_score), 1)`, SD = `r round(sd(dplyr::filter(vet, veteran == "Veterans")$pre_score), 1)`) and post-test (M = `r round(mean(dplyr::filter(vet, veteran == "Veterans")$post_score), 1)`, SD = `r round(sd(dplyr::filter(vet, veteran == "Veterans")$post_score), 1)`) CAPS interview indicate that the treatment significantly reduced symptoms of PTSD in veterans with war-related trauma, t(`r t_test[["parameter"]][["df"]]`) = `r t_test[["statistic"]][["t"]] %>% round(1)`, p `r ifelse(t_test[["p.value"]] < 0.001, "< 0.001", cat("=", t_test[["p.value"]] %>% round(2)))`.
 
 ```{r}
 #| echo = FALSE
@@ -518,8 +543,8 @@ vet %>%
   ggplot(aes(x = pre_score, y = post_score)) +
     geom_point(aes(color = rci, shape = post_diagnosis)) + 
     geom_abline(aes(intercept = 0, slope = 1, linetype = "1")) +
-  geom_abline(aes(intercept = 6.76 * 1.96, slope = 1, linetype = "2")) + 
-  geom_abline(aes(intercept = - 6.76 * 1.96, slope = 1, linetype = "2")) + 
+  geom_abline(aes(intercept = c * 1.96, slope = 1, linetype = "2")) + 
+  geom_abline(aes(intercept = -c * 1.96, slope = 1, linetype = "2")) + 
   xlim(0, 80) + 
   ylim(0, 80) +
   xlab("Pre-treament CAPS score") + 
@@ -532,8 +557,8 @@ vet %>%
     labels = c("No change", "Reliable change 95% CI", "Criteria")) + 
   scale_color_manual(
     name = "RCI",
-    values = c("#D95319", "#0072BD", "#77AC30"),
-    labels = c("Worsened", "Unchanged", "Improved")) +
+    values = c("#0072BD", "#77AC30", "#D95319"),
+    labels = c("Unchanged", "Improved", "Worsened")) +
   scale_shape_manual(name = "Diagnosis", values = c(1, 4)) +
   theme(aspect.ratio = 1)
 
@@ -542,10 +567,11 @@ ggsave(
   width = 9, 
   height = 4, 
   dpi = 600, 
-  bg = "white")
+  bg = "white"
+)
 ```
 
-We computed the RCI using a test-retest reliability of 0.73 and the pooled standard deviations of the test scores. A patient was considered to have improved if the CAPS score decreased with `r round(6.76 * 1.96, 2)` points. From the figure it is interesting to observe that for the non-veterans improvement and no PTSD diagnosis post-treatment appear to coincide, whereas this is not the case for veterans. There are veterans that did improve on their scores, but remained with the PTSD diagnosis post-treatment. 
+We computed the RCI using a test-retest reliability of 0.73 and the pooled standard deviations of the test scores. A patient was considered to have improved if the CAPS score decreased with `r round(c * 1.96, 2)` points. From the figure it is interesting to observe that for the non-veterans improvement and no PTSD diagnosis post-treatment appear to coincide, whereas this is not the case for veterans. There are veterans that did improve on their scores, but remained with the PTSD diagnosis post-treatment. 
 
 In the veteran group compared to the non-veteran group, more participants improved and less participants remained unchanged according to the RCI. In the non-veteran group, two people deteriorated. 
 
@@ -555,7 +581,7 @@ table(vet$veteran, vet$rci)
 fisher.test(table(vet$veteran, vet$rci))
 ```
 
-However, if we look at the diagnosis of PTSD post-treatment, we observe equal numbers. 
+However, if we look at the diagnosis of PTSD post-treatment, we observe a different result.  
 
 ```{r}
 #| echo = FALSE
@@ -583,9 +609,9 @@ In our analysis, we employed the standard multivariate Cauchy distribution in JA
 
 | Models | P(M) | P(M\|data) | BF$_\text{M}$ | BF$_\text{01}$ | error % |
 |------------|:---:|:---:|:---:|:---:|:---:|
-| Null model | 0.333 | 0.739 | 5.664 | 1 |  |
-| Veteran | 0.333 | 0.18 | 0.44 | 4.097 | 2.456 |
-| Veteran + Veteran × Time | 0.333 | 0.081 | 0.175 | 9.173 | 2.698 |
+| Null model | 0.333 | 0.705 | 4.769 | 1 |  |
+| Veteran | 0.333 | 0.254 | 0.682 | 2.772 | 1.494 |
+| Veteran + Veteran × Time | 0.333 | 0.041 | 0.086 | 17.076 | 2.071 |
 
 Table: Model Comparisons
 
@@ -593,8 +619,8 @@ According to the first table, the model probability of the null model increased 
 
 | Effects | P(incl) | P(excl) | P(incl\|data) | P(excl\|data) | BF$_\text{excl}$ |
 |------------|:---:|:---:|:---:|:---:|:---:|
-| veteran | 0.667 | 0.333 | 0.261 | 0.739 | 5.664 |
-| Time × veteran | 0.333 | 0.667 | 0.081 | 0.919 | 5.706 |
+| veteran | 0.667 | 0.333 | 0.295 | 0.705 | 4.769 |
+| Time × veteran | 0.333 | 0.667 | 0.041 | 0.959 | 11.619 |
 
 Table: Analysis of Effects
 
@@ -602,15 +628,15 @@ In the second table, we observe that when we average across the models, the evid
 
 | Variable | Level | Mean | SD | Lower CI | Upper CI |
 |-------|-----------|:---:|:---:|:---:|:---:|
-| Intercept |  | 29.49 | 1.066 | 27.353 | 31.592 |
-| Veteran | Non-Veteran | 0.661 | 1.017 | -1.401 | 2.686 |
-|  | Veteran | -0.661 | 1.017 | -2.730 | 1.357 |
-| Time | Pre-score | 14.074 | 0.828 | 12.410 | 15.688 |
-|  | Post-score | -14.074 | 0.828 | -15.832 | -12.516 |
-| Veteran × Time | Non-Veteran & Pre-score | -0.902 | 0.780 | -2.488 | 0.656 |
-|  | Non-Veteran & Post-score | 0.902 | 0.780 | -0.669 | 2.475 |
-|  | Veteran & Pre-score | 0.902 | 0.780 | -0.669 | 2.475 |
-|  | Veteran & Post-score | -0.902 | 0.780 | -2.488 | 0.656 |
+| Intercept |  | 26.965 | 0.845 | 25.255 | 28.610 |
+| Veteran | Non-Veteran | -1.271 | 0.829 | -2.965 | 0.347 |
+|  | Veteran | 1.271 | 0.829 | -0.395 | 2.918 |
+| Time | Pre-score | 16.031 | 0.638 | 14.699 | 17.261 |
+|  | Post-score | -16.031 | 0.638 | -17.370 | -14.780 |
+| Veteran × Time | Non-Veteran & Pre-score | 0.473	|	0.628	|	-0.797	|	1.705 |
+|  | Non-Veteran & Post-score | -0.473	|	0.628	|	-1.717	|	0.785	|
+|  | Veteran & Pre-score | -0.473	|	0.628	|	-1.717	|	0.785	|
+|  | Veteran & Post-score | 0.473	|	0.628	|	-0.797	|	1.705	|
 
 Table: Model Averaged Posterior Summary
 
@@ -622,11 +648,11 @@ The final table displays the Model Averaged Posterior Summary, which presents th
 #| echo    = FALSE,
 #| warning = FALSE,
 #| dpi     = 600
-bayes <- read.csv("data/data_bayes_factor.csv")
+bayes <- read.csv2("data/bayes_factors.csv")
 
 ggplot(bayes, aes(x = fixed_scale, y = bayes_factor)) +
   geom_rect(
-    xmin = 0.25, xmax = 1.00, ymin = -Inf, ymax = Inf, 
+    xmin = 0.5, xmax = 1.50, ymin = -Inf, ymax = Inf, 
     fill = "grey90") + 
   geom_hline(yintercept = 1) + 
   geom_hline(
@@ -634,10 +660,10 @@ ggplot(bayes, aes(x = fixed_scale, y = bayes_factor)) +
     color      = "darkgrey", 
     linetype   = "dotted") + 
   geom_segment(
-    aes(x = 0.5, y = 0, xend = 0.5, yend = 9.2), 
+    aes(x = 1, y = 0, xend = 1, yend = 17.1), 
     linetype = 2) +
   geom_segment(
-    aes(x = -Inf, y = 9.2, xend = 0.5, yend = 9.2), 
+    aes(x = -Inf, y = 17.0, xend = 1, yend = 17.1), 
     linetype = 2) +
   geom_smooth(
     aes(group = model, color = model),
@@ -645,28 +671,28 @@ ggplot(bayes, aes(x = fixed_scale, y = bayes_factor)) +
     fullrange = TRUE,
     formula = "y ~ poly(x, 5, raw = TRUE)", 
     se = FALSE) + 
-  geom_segment(aes(x = 1.5, y = 1.25, xend = 1.5, yend = 2.5),
+  geom_segment(aes(x = 2, y = 1.25, xend = 2, yend = 2.5),
     arrow = arrow(length = unit(0.15, "cm"))) + 
-  geom_segment(aes(x = 1.5, y = 0.80, xend = 1.5, yend = 0.4),
+  geom_segment(aes(x = 2, y = 0.80, xend = 2, yend = 0.4),
     arrow = arrow(length = unit(0.15, "cm"))) + 
   annotate(
     "label", 
-    x = 1.475, y = 1.72, size = 2.5, label.size = NA, fill = NA,
+    x = 1.975, y = 1.72, size = 2.5, label.size = NA, fill = NA,
     label = "Support ~ `for` ~ H[0]",
     hjust = 1,
     parse = TRUE) +
   annotate(
     "label", 
-    x = 1.475, y = 0.55, size = 2.5, label.size = NA, fill = NA,
+    x = 1.975, y = 0.55, size = 2.5, label.size = NA, fill = NA,
     label = "Support ~ `for` ~ H[1]",
     hjust = 1,
     parse = TRUE) +
   annotate(
     "label", 
-    x = 0.625, y = 57.5, size = 2.5, label.size = NA, fill = NA,
+    x = 1, y = 57.5, size = 2.5, label.size = NA, fill = NA,
     label = "Plausable scale\nparameters", color = "grey20") +
   scale_x_continuous(
-    limits = c(0, 1.5),
+    limits = c(0, 2.0),
     name = "Cauchy prior width") +
   scale_y_continuous(
     name = expression(~BF["01"]),
@@ -677,7 +703,9 @@ ggplot(bayes, aes(x = fixed_scale, y = bayes_factor)) +
   sec.axis = sec_axis(
     name   = "Evidence",
     breaks = c(0.57, 1.75, 5.5, 17.5, 55), 
-    labels = c("Anecdotal","Anecdotal", "Moderate", "Strong", "Very Strong"),
+    labels = c(
+      "Anecdotal","Anecdotal", "Moderate", "Strong", "Very Strong"
+    ),
     trans  = ~.)) + 
   theme_bw() + 
   theme(
@@ -696,8 +724,10 @@ ggsave(
   width    = 4.5, 
   height   = 4.5, 
   dpi      = 600, 
-  bg       = "white")
+  bg       = "white"
+)
 ```
+
 In Bayesian analysis with JASP, the choice of Cauchy prior width for the fixed effects can impact the strength of evidence supporting the null hypothesis. When the prior width is set to a small value, the differences between the null and alternative hypotheses become smaller, which results in a Bayes factor that is closer to 1. The figure above displays the robustness of evidence across different Cauchy prior widths, indicating moderate to strong evidence in favor of the null model across all plausible scale parameters according to Kruschke (2011).
 
 ## References
