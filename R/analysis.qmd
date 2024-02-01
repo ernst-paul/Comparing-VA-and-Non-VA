@@ -317,7 +317,7 @@ Including p-values in Table 1 may be easy, but it is not recommended. This is tr
 
 ## Missing Data
 
-There are 47 veterans records in total, with one being a re-registration and another without PTSD diagnosis. Excluding these records, there are 45 veterans. Of those 45, 43 have a CAPS score after treatment and 23 have a follow-up CAPS score. The next section examines whether there are any differences between veterans who have a follow-up CAPS score and those who do not.
+There are 46 veterans records in total, with one being a re-registration and another without PTSD diagnosis. Excluding these records, there are 45 veterans. Of those 45, 43 have a CAPS score after treatment and 23 have a follow-up CAPS score. The next section examines whether there are any differences between veterans who have a follow-up CAPS score and those who do not.
 
 ---
 
@@ -603,7 +603,7 @@ In our analysis, we use the Bayes factor to compare two distinct models by compu
 
 In our analysis, we adopted an uninformative prior for the model prior, which entails assigning equal prior probability to each of the competing models before observing any data. This means that we did not express any prior preference or bias towards any particular model. By using an uninformative prior, we allowed the data to have a greater impact on the posterior distribution over models.
 
-In our analysis, we employed the standard multivariate Cauchy distribution in JASP (version 0.17.1) as the prior for the effects. To ensure the robustness of our results, we also calculated various Bayes factors for a range of scale parameters, from 0.0 to 1.5, for the fixed effects.
+In our analysis, we employed the standard multivariate Cauchy distribution in JASP (version 0.17.1) as the prior for the effects. Where the prior coefficients for the fixed and random effects were set to 1.0 and the scale of the of the covariates was set to 0.3. To ensure the robustness of our results, we also calculated various Bayes factors for a range of scale parameters, from 0.0 to 2.0, for the fixed effects.
 
 ### Results
 
